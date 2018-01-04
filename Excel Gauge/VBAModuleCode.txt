@@ -1,0 +1,177 @@
+Option Explicit
+Rem Gauge Chart Create Automation based on instructions at
+Rem https://www.extendoffice.com/documents/excel/2349-excel-create-speedometer-or-gauge-chart.html
+Rem Viewed 2017-12-31T16:47:54+10:00
+
+Rem A lot of hard work to keep magic constants out of the maincode
+Rem Named Range Names
+Public Const NAMED_GAUGE As String = "GaugeValues"
+Public Const NAMED_INNER As String = "InnerRing"
+Public Const NAMED_POINTER As String = "PointerValues"
+
+Rem Series Names
+Public Const SERIES_CATEGORIES = "Categories"
+Public Const SERIES_GAUGEVALUES = "GaugeValues"
+Public Const SERIES_INNERRING = "InnerRing"
+Public Const SERIES_POINTER = "Pointer"
+
+Rem Pointer Series Labels - We need these to identify cells in the pointer named range
+Public Const LBL_PTR_VALUE As String = "Value"
+Public Const LBL_PTR_PTR As String = "Pointer"
+Public Const LBL_PTR_END As String = "End"
+Public Const LBL_PTR_HOLE As String = "Hole Size"
+
+Rem CATEGORIES, GAUGEVALUES and INNERRING must have the same item count
+Public Const CATEGORIES = """" & SERIES_CATEGORIES & """,""Low"",""Sweet Spot"",""High"",""Kruft"""
+Public Const GAUGEVALUES = """" & SERIES_GAUGEVALUES & """,45,90,45,0"
+Public Const INNERRING = """" & SERIES_INNERRING & """,180,0,0,180"
+Public Const INITVALUES = CATEGORIES & ";" & GAUGEVALUES & ";" & INNERRING
+Rem "{..}" represents an array formula
+Public Const EVALARG = "{" & INITVALUES & "}"
+Public Const PTRLABELS = """" & LBL_PTR_VALUE & """,""" & LBL_PTR_PTR & """,""" & LBL_PTR_END & """"
+Public Const POINTER_EVALARG = "{" & PTRLABELS & ";10,1,0}"
+
+Rem Change these values if relocating the default plot values to elsewhere on the new sheet
+Public Const RNG_GAUGEVALUES_START = "A1"
+Public Const RNG_POINTER_START = "E2"
+
+Rem Change these numbers if the value columns within the named ranges change
+Public Const INNERRING_COL = 3
+Public Const GAUGEVALUES_COL = 2
+Public Const POINTERVALUES_COL = 2
+
+Rem Miscellaneous constants
+Public Const FIRST_SLICE_ANGLE As Long = 270
+
+Sub NewGaugeChart()
+Dim GaugeChartSheet As Excel.Worksheet
+Dim GaugeChart As Excel.Chart
+Dim Rng As Excel.Range
+Dim pt As Excel.Point
+Dim InitArray, fc As Variant
+Dim Formula As String
+Dim ValueIndex, EndIndex, PtrIndex, i As Integer
+
+    InitArray = Evaluate(EVALARG)
+    If IsError(InitArray) Then
+        MsgBox "Error Initialising Array" & vbCrLf & "Possible error in Global String Constant 'EVALARG'", vbCritical
+        Exit Sub
+    End If
+    Set GaugeChartSheet = ActiveWorkbook.Sheets.Add()
+    GaugeChartSheet.Names.Add NAMED_GAUGE, GaugeChartSheet.Range(RNG_GAUGEVALUES_START).Resize(UBound(InitArray, 2), UBound(InitArray, 1))
+    Rem  http://www.cpearson.com/excel/ArraysAndRanges.aspx
+    Rem Viewed 2017-12-31T16:47:54+10:00
+    GaugeChartSheet.Range(NAMED_GAUGE).Value = Application.Transpose(InitArray)
+
+    Rem UBound(InitArray,2) * -1 + 2 = Catgeories item count including this formula cell
+    Rem Multiply by -1 to sum the numbers above this cell, and add 2, 1 to start above this cell and 1 to ignore header cell
+    Formula = "=360 - SUM(R[" & (-1 * UBound(InitArray, 2) + 2) & "]C:R[-1]C)"
+    GaugeChartSheet.Range(NAMED_GAUGE).Cells(UBound(InitArray, 2), GAUGEVALUES_COL).FormulaR1C1 = Formula
+    GaugeChartSheet.Range(NAMED_GAUGE).Columns.AutoFit
+    
+    InitArray = Evaluate(POINTER_EVALARG)
+    If IsError(InitArray) Then
+        MsgBox "Error Initialising Array" & vbCrLf & "Possible error in Global String Constant 'POINTER_EVALARG'", vbCritical
+        Exit Sub
+    End If
+    GaugeChartSheet.Names.Add NAMED_POINTER, GaugeChartSheet.Range(RNG_POINTER_START).Resize(UBound(InitArray, 2), UBound(InitArray, 1))
+    Formula = "=360 - SUM(R[" & (-1 * UBound(InitArray, 2) + 1) & "]C:R[-1]C)"
+    GaugeChartSheet.Range(NAMED_POINTER).Value = Application.Transpose(InitArray)
+    GaugeChartSheet.Range(NAMED_POINTER).Cells(UBound(InitArray, 2), POINTERVALUES_COL).FormulaR1C1 = Formula
+
+    Set GaugeChart = GaugeChartSheet.Shapes.AddChart().Chart
+    With GaugeChart
+        .ChartType = xlDoughnut
+        .SetSourceData GaugeChartSheet.Names(NAMED_GAUGE).RefersToRange
+        With .SeriesCollection(SERIES_GAUGEVALUES)
+            .ApplyDataLabels
+            .DataLabels.ShowCategoryName = True
+            .DataLabels.ShowValue = False
+            .Points(.Points.Count).Format.fill.Visible = msoFalse
+            .Points(.Points.Count).DataLabel.ShowCategoryName = False
+            Rem Set default colours that aren't ugly
+            .Points(1).Format.fill.ForeColor.RGB = RGB(222, 235, 247)
+            .Points(2).Format.fill.ForeColor.RGB = RGB(158, 202, 225)
+            .Points(3).Format.fill.ForeColor.RGB = RGB(49, 130, 189)
+        End With
+        With .SeriesCollection(SERIES_INNERRING)
+            .Format.fill.ForeColor.RGB = RGB(210, 210, 210)
+            .PlotOrder = 1
+            .Points(.Points.Count).Format.fill.Visible = msoFalse
+        End With
+        
+        ValueIndex = WorksheetFunction.Match(LBL_PTR_VALUE, GaugeChartSheet.Range("pointervalues").Columns(1), 0)
+        EndIndex = WorksheetFunction.Match(LBL_PTR_END, GaugeChartSheet.Range("pointervalues").Columns(1), 0)
+        PtrIndex = WorksheetFunction.Match(LBL_PTR_PTR, GaugeChartSheet.Range("pointervalues").Columns(1), 0)
+        With .SeriesCollection.NewSeries()
+            .Name = SERIES_POINTER
+            .Values = GaugeChartSheet.Range(NAMED_POINTER).Columns(POINTERVALUES_COL)
+            .ChartType = xlPie
+            .AxisGroup = 2
+            .Points(EndIndex).Format.fill.Visible = msoFalse
+            .Points(ValueIndex).Format.fill.Visible = msoFalse
+            With .Points(PtrIndex).Format.fill
+                .Visible = msoTrue
+                .ForeColor.ObjectThemeColor = msoThemeColorText1
+                .ForeColor.TintAndShade = 0
+                .ForeColor.Brightness = 0
+                .Transparency = 0
+                .Solid
+            End With
+        End With
+        .ChartGroups(1).DoughnutHoleSize = 30
+        .ChartGroups(1).FirstSliceAngle = FIRST_SLICE_ANGLE
+        .ChartGroups(2).FirstSliceAngle = FIRST_SLICE_ANGLE
+        .Legend.Delete
+        
+        Rem Selecting the underlying donut charts to change fill colors is impossible when the pie chart is plotted.
+        Rem Reflect the fill colour of the charts data points back to excel sheet.
+        Rem The user can then change the fill color of the excel sheet cells and reflect it back to the chart by running
+        Rem the chartformat macro.
+        Set Rng = Range(Split(.SeriesCollection(SERIES_GAUGEVALUES).Formula, ",")(1))
+        For i = 1 To .SeriesCollection(SERIES_GAUGEVALUES).Points.Count
+            fc = .SeriesCollection(SERIES_GAUGEVALUES).Points(i).Format.fill.ForeColor.RGB
+            Rng.Cells(i, 1).Interior.Color = fc
+        Next i
+        Set Rng = Range(Split(.SeriesCollection(SERIES_INNERRING).Formula, ",")(2))
+        Rng.Interior.Color = .SeriesCollection(SERIES_INNERRING).Format.fill.ForeColor.RGB
+        Rng.Cells(Rng.Cells.Count).Interior.ColorIndex = 0
+    End With
+End Sub
+
+Sub ChartFormat()
+Dim GaugeChart As Excel.Chart
+Dim pt As Excel.Point
+Dim Rng As Excel.Range
+Dim i As Integer
+Dim fc As Variant
+    
+    Set GaugeChart = ActiveSheet.ChartObjects(1).Chart
+    With GaugeChart
+        With .SeriesCollection(SERIES_GAUGEVALUES)
+            For Each pt In .Points
+                pt.Format.fill.Visible = msoTrue
+            Next
+            .ApplyDataLabels
+            .DataLabels.ShowCategoryName = True
+            .DataLabels.ShowValue = False
+            .Format.fill.Visible = msoTrue
+            .Points(.Points.Count).Format.fill.Visible = msoFalse
+            .Points(.Points.Count).DataLabel.ShowCategoryName = False
+            Set Rng = Range(Split(.Formula, ",")(1))
+            For i = 1 To .Points.Count
+                fc = Rng.Cells(i, 1).Interior.Color
+                .Points(i).Format.fill.ForeColor.RGB = fc
+            Next i
+        End With
+        With .SeriesCollection(SERIES_INNERRING)
+            Set Rng = Range(Split(.Formula, ",")(2))
+            For i = 1 To .Points.Count
+                .Points(i).Format.fill.Visible = msoTrue
+                fc = Rng.Cells(i, 1).Interior.Color
+                .Points(i).Format.fill.ForeColor.RGB = fc
+            Next i
+        End With
+    End With
+End Sub
+
