@@ -1,5 +1,5 @@
 # Charts
-Methods for Creating Charts for reports and presentations
+Methods for Creating Charts for reports and presentations.
 A repository of scripts, vba code, excel workbooks etc to automate creation of charts.
 ## Rationale
 Telling a story about the performance of a project/program or requesting more resources from
